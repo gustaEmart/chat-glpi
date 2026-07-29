@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acesso remoto - Chat-GLPI</title>
+<!--
+    Página mínima de acesso remoto via noVNC, aberta pela aba "Acesso
+    remoto" do chamado (inc/vncconnect.class.php). Adaptada do exemplo
+    oficial vnc_lite.html do próprio noVNC (ver AUTHORS/LICENSE.txt em
+    /opt/glpi-chat/novnc/), removendo os campos de host/porta (o backend já
+    resolveu tudo antes de abrir esta aba - só falta a senha do VNC) e
+    adicionando o ciclo de vida da sessão (heartbeat + encerramento no
+    fechamento da aba) exigido pelo md "Refatoração do módulo de acesso
+    remoto".
+
+    URL esperada: /remote/<session-id> - o id da sessão é só o último
+    pedaço do caminho; nenhum host/IP passa pela URL (ver seção
+    "Segurança" do md).
+-->
+<style>
+    html, body {
+        height: 100%;
+        margin: 0;
+        background: #1e1e1e;
+        font-family: -apple-system, Segoe UI, Helvetica, Arial, sans-serif;
+    }
+    body { display: flex; flex-direction: column; }
+    #top_bar {
+        background: #2d3748;
+        color: #e2e8f0;
+        font-size: 13px;
+        padding: 8px 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-shrink: 0;
+    }
+    #status { flex: 1; }
+    #top_bar button {
+        background: #4a5568;
+        color: #fff;
+        border: 1px solid #718096;
+        border-radius: 4px;
+        padding: 4px 10px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+    #top_bar button:hover { background: #5a6578; }
+    /* Painel de chat flutuante - conversa contínua com quem está usando a
+       máquina. Este é o painel do TÉCNICO (aqui, no navegador) - a pessoa
+       do outro lado vê o DELA, numa janela de verdade na própria tela
+       (agent/chatwindow/main.go), coisas completamente separadas. Canto
+       ESQUERDO de propósito - o balão dela nasce no canto direito da tela
+       remota (repositionBottomRight() em chatwindow/main.go); os dois no
+       mesmo canto ficariam um por cima do outro na visualização VNC,
+       confundindo qual é qual. Fica por cima do #screen (não empurra o
+       layout), fechado por padrão.
+
+       Visual espelha o chat principal do GLPI (plugin/chatglpi/css/
+       chat.css) - bolhas estilo WhatsApp, cabeçalho e botões na mesma cor
+       de marca - mas com cores FIXAS (não a paleta escolhida no GLPI):
+       esta página é standalone, sem o resto do GLPI carregado ao redor,
+       então não tem nenhum elemento de onde ler a cor de verdade (ver
+       chatglpiMenuColors() em plugin/chatglpi/js/chat.js, que só funciona
+       porque roda DENTRO de uma página do GLPI - aqui não tem essa
+       página). Navy do cabeçalho e vermelho das bolhas/botão são os
+       mesmos tons já usados no chat principal, só fixos em vez de lidos
+       ao vivo. */
+    #chat_panel {
+        display: none;
+        position: absolute;
+        left: 16px;
+        bottom: 16px;
+        width: 340px;
+        height: 440px;
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, .5);
+        flex-direction: column;
+        overflow: hidden;
+        z-index: 10;
+    }
+    #chat_panel.visible { display: flex; }
+    #chat_panel_header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        background: #0a4a6e;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+        flex-shrink: 0;
+        cursor: move;
+        user-select: none; /* senão arrastar seleciona o texto do título */
+    }
+    #chat_panel_header span { flex: 1; }
+    #chatCloseButton {
+        background: none;
+        border: none;
+        color: #fff;
+        opacity: .8;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 2px 4px;
+    }
+    #chatCloseButton:hover { opacity: 1; }
+    #chat_history {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px;
+        font-size: 13px;
+        background: #fff;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .chat_msg { max-width: 78%; display: flex; flex-direction: column; }
+    .chat_msg.tech { align-self: flex-end; }
+    .chat_msg.user { align-self: flex-start; }
+    .chat_msg_author {
+        font-size: 11px;
+        font-weight: 600;
+        color: #495057;
+        margin-bottom: 2px;
+    }
+    .chat_msg_bubble {
+        padding: 7px 11px;
+        border-radius: 12px;
+        font-size: 13px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    .chat_msg.tech .chat_msg_bubble { background: #dc2626; color: #fff; }
+    .chat_msg.user .chat_msg_bubble { background: #f1f3f5; color: #212529; border: 1px solid #e2e6ea; }
+    .chat_msg_time { font-size: 10px; color: #868e96; margin-top: 3px; }
+    .chat_msg.tech .chat_msg_time { text-align: right; }
+    #chat_compose {
+        display: flex;
+        gap: 6px;
+        padding: 8px;
+        border-top: 1px solid #e2e6ea;
+        background: #fff;
+    }
+    #chatText {
+        flex: 1;
+        background: #fff;
+        color: #212529;
+        border: 1px solid #ced4da;
+        border-radius: 6px;
+        padding: 6px 9px;
+        font-size: 13px;
+    }
+    #chatSendButton {
+        background: #dc2626;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    #chatSendButton:hover { background: #c81e1e; }
+    #screen { flex: 1; overflow: hidden; background: #000; position: relative; }
+    #fatal {
+        display: none;
+        color: #fff;
+        text-align: center;
+        padding: 40px 20px;
+        font-size: 15px;
+    }
+</style>
+</head>
+<body>
+<div id="top_bar">
+    <div id="status">Conectando...</div>
+    <button id="chatToggleButton">Chat</button>
+    <button id="resizeModeButton">Ajustar: escala</button>
+    <button id="fullscreenButton">Tela cheia</button>
+    <button id="ctrlAltDelButton">Ctrl+Alt+Del</button>
+</div>
+<div id="fatal"></div>
+<div id="screen">
+    <div id="chat_panel">
+        <div id="chat_panel_header">
+            <span>💬 Chat com o usuário</span>
+            <button id="chatCloseButton" title="Fechar">&times;</button>
+        </div>
+        <div id="chat_history"></div>
+        <div id="chat_compose">
+            <input id="chatText" type="text" placeholder="Mensagem para quem está usando o computador...">
+            <button id="chatSendButton">Enviar</button>
+        </div>
+    </div>
+</div>
+
+<script type="module" crossorigin="anonymous">
+import RFB from '/novnc/core/rfb.js';
+
+// Substitui o "pontinho" padrão do showDotCursor (RFB.cursors.dot, definido
+// em rfb.js como um bitmap 3x3 fixo) por uma seta de verdade, desenhada em
+// canvas e convertida pro mesmo formato (rgbaPixels/w/h/hotx/hoty) que o
+// próprio noVNC usa internamente (ver _shouldShowDotCursor() em rfb.js) -
+// não precisa mexer no arquivo fonte do noVNC, só trocar essa propriedade
+// estática antes de conectar.
+function buildArrowCursor() {
+    const size = 22;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.beginPath();
+    ctx.moveTo(1, 1);
+    ctx.lineTo(1, 17);
+    ctx.lineTo(5, 13);
+    ctx.lineTo(8, 20);
+    ctx.lineTo(10.5, 19);
+    ctx.lineTo(7.5, 12);
+    ctx.lineTo(13, 12);
+    ctx.closePath();
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1.4;
+    ctx.fill();
+    ctx.stroke();
+    const imageData = ctx.getImageData(0, 0, size, size);
+    return {
+        rgbaPixels: new Uint8Array(imageData.data),
+        w: size, h: size,
+        hotx: 1, hoty: 1, // ponta da seta, mesmo ponto onde o path começa
+    };
+}
+RFB.cursors.dot = buildArrowCursor();
+
+function fatal(msg) {
+    document.getElementById('screen').style.display = 'none';
+    document.getElementById('fatal').textContent = msg;
+    document.getElementById('fatal').style.display = 'block';
+}
+
+const sessionId = location.pathname.replace(/\/+$/, '').split('/').pop();
+if (!sessionId) {
+    fatal('Sessão inválida - abra o acesso remoto novamente a partir do chamado.');
+    throw new Error('missing session id');
+}
+
+const API_BASE = '/chatglpi-api/remote';
+const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
+const wsUrl = wsProtocol + '://' + location.host + '/remote-ws/?token=' + encodeURIComponent(sessionId);
+
+function status(text) {
+    document.getElementById('status').textContent = text;
+}
+
+function sendHeartbeat() {
+    fetch(API_BASE + '/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session: sessionId })
+    }).catch(() => {});
+}
+
+function sendStopBeacon() {
+    // sendBeacon sobrevive ao fechamento da aba (fetch normal seria
+    // cancelado); o Blob com type 'application/json' faz o Express
+    // reconhecer o corpo como JSON igual a um fetch comum.
+    navigator.sendBeacon(
+        API_BASE + '/stop',
+        new Blob([JSON.stringify({ session: sessionId })], { type: 'application/json' })
+    );
+}
+
+let heartbeatTimer = setInterval(sendHeartbeat, 20000);
+sendHeartbeat();
+window.addEventListener('pagehide', sendStopBeacon);
+window.addEventListener('beforeunload', sendStopBeacon);
+
+// Chat com quem está usando o computador - o widget já apareceu sozinho na
+// tela dela assim que a sessão começou (ver createSession() no backend,
+// que chama /chat/open no agente instalado via GPO); este painel aqui, do
+// lado do técnico, é só a mesma conversa espelhada, com poll curto (2s)
+// pra pegar as respostas dela sem precisar de conexão persistente nova.
+const chatToggleButton = document.getElementById('chatToggleButton');
+const chatPanel = document.getElementById('chat_panel');
+const chatHistory = document.getElementById('chat_history');
+const chatText = document.getElementById('chatText');
+const chatSendButton = document.getElementById('chatSendButton');
+const chatCloseButton = document.getElementById('chatCloseButton');
+let lastRenderedMessageCount = 0;
+
+chatToggleButton.addEventListener('click', () => {
+    chatPanel.classList.toggle('visible');
+    if (chatPanel.classList.contains('visible')) chatText.focus();
+});
+chatCloseButton.addEventListener('click', () => {
+    chatPanel.classList.remove('visible');
+});
+
+// Arrastar o painel pelo cabeçalho. O painel é posicionado por left/bottom
+// no CSS; ao começar a arrastar trocamos pra left/top (medidos da posição
+// atual) pra conta ficar direta - senão o eixo Y ficaria invertido no meio
+// do arrasto. Listeners de move/up no DOCUMENT (não no cabeçalho) pra não
+// "soltar" quando o ponteiro anda mais rápido que o repintar, e clamp na
+// janela pra nunca largar o painel fora da tela.
+(function makeChatPanelDraggable() {
+    const screenEl = document.getElementById('screen');
+    let dragging = false, offsetX = 0, offsetY = 0;
+
+    document.getElementById('chat_panel_header').addEventListener('mousedown', e => {
+        if (e.target === chatCloseButton) return; // clicar no "x" não arrasta
+        // left/top são relativos ao #screen (offsetParent do painel), mas
+        // getBoundingClientRect é relativo à JANELA - descontar a origem do
+        // #screen é o que evita o painel "pular" ao pegar no cabeçalho.
+        const rect = chatPanel.getBoundingClientRect();
+        const base = screenEl.getBoundingClientRect();
+        chatPanel.style.left = (rect.left - base.left) + 'px';
+        chatPanel.style.top = (rect.top - base.top) + 'px';
+        chatPanel.style.bottom = 'auto';
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
+        dragging = true;
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        const base = screenEl.getBoundingClientRect();
+        const maxX = base.width - chatPanel.offsetWidth;
+        const maxY = base.height - chatPanel.offsetHeight;
+        const x = e.clientX - offsetX - base.left;
+        const y = e.clientY - offsetY - base.top;
+        chatPanel.style.left = Math.max(0, Math.min(maxX, x)) + 'px';
+        chatPanel.style.top = Math.max(0, Math.min(maxY, y)) + 'px';
+    });
+
+    document.addEventListener('mouseup', () => { dragging = false; });
+})();
+
+function renderChatMessages(messages) {
+    if (messages.length === lastRenderedMessageCount) return; // nada novo - evita rolar/piscar à toa
+    lastRenderedMessageCount = messages.length;
+    chatHistory.innerHTML = messages.map(m => {
+        const side = m.from === 'user' ? 'user' : 'tech';
+        const time = new Date(m.ts).toTimeString().slice(0, 5);
+        const text = m.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        // Nome do autor só do lado recebido (igual ao chat principal do
+        // GLPI - a bolha própria já fica claramente do lado direito, sem
+        // precisar repetir "Você" em cima dela).
+        const author = side === 'user' ? '<div class="chat_msg_author">Usuário</div>' : '';
+        return '<div class="chat_msg ' + side + '">' + author +
+            '<div class="chat_msg_bubble">' + text + '</div>' +
+            '<div class="chat_msg_time">' + time + '</div></div>';
+    }).join('');
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
+function pollChatMessages() {
+    fetch(API_BASE + '/chat/messages?session=' + encodeURIComponent(sessionId))
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data && data.messages) renderChatMessages(data.messages); })
+        .catch(() => {});
+}
+let chatPollTimer = setInterval(pollChatMessages, 2000);
+pollChatMessages();
+
+function sendChatMessage() {
+    const text = chatText.value.trim();
+    if (!text) return;
+    chatText.value = '';
+    fetch(API_BASE + '/chat/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session: sessionId, text })
+    })
+        .then(() => pollChatMessages())
+        .catch(() => {});
+}
+chatSendButton.addEventListener('click', sendChatMessage);
+chatText.addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendChatMessage();
+});
+
+// Escala (padrão) x redimensionar sessão: são mutuamente exclusivos no
+// noVNC (scaleViewport ajusta a imagem no navegador sem mexer na
+// resolução remota; resizeSession pede pro próprio computador remoto
+// mudar de resolução - só funciona se o UltraVNC Server permitir). Fica
+// numa variável fora de connect() pra sobreviver a uma reconexão (nova
+// instância de RFB).
+let resizeMode = 'scale';
+function applyResizeMode(rfbInstance) {
+    if (resizeMode === 'scale') {
+        rfbInstance.scaleViewport = true;
+        rfbInstance.resizeSession = false;
+    } else {
+        rfbInstance.scaleViewport = false;
+        rfbInstance.resizeSession = true;
+    }
+}
+document.getElementById('resizeModeButton').addEventListener('click', () => {
+    resizeMode = resizeMode === 'scale' ? 'resize' : 'scale';
+    document.getElementById('resizeModeButton').textContent =
+        'Ajustar: ' + (resizeMode === 'scale' ? 'escala' : 'resolução remota');
+    if (rfb) applyResizeMode(rfb);
+});
+
+document.getElementById('fullscreenButton').addEventListener('click', () => {
+    if (document.fullscreenElement) {
+        document.exitFullscreen();
+    } else {
+        document.documentElement.requestFullscreen().catch(() => {});
+    }
+});
+document.addEventListener('fullscreenchange', () => {
+    document.getElementById('fullscreenButton').textContent =
+        document.fullscreenElement ? 'Sair da tela cheia' : 'Tela cheia';
+});
+
+// Reconexão automática só em queda inesperada (e.detail.clean === false) -
+// desconexão pedida pelo próprio técnico (fechar aba, trocar senha
+// cancelada) não deve reconectar sozinha. Backoff crescente, número
+// limitado de tentativas pra não ficar tentando pra sempre numa sessão
+// que o backend já expirou/destruiu.
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAYS_MS = [2000, 4000, 8000, 16000, 30000];
+let reconnectAttempts = 0;
+let reconnectTimer = null;
+let rfb = null;
+
+// Marca se a última coisa que fizemos foi mandar uma senha pro servidor -
+// serve pra distinguir "senha errada" de "rede caiu" quando o disconnect
+// chega (o evento nativo do noVNC só manda clean=true/false, sem motivo).
+// Reseta a cada connect() novo e a cada conexão bem-sucedida, pra não
+// confundir uma queda de rede BEM depois de logar com sobra de estado de
+// uma tentativa de senha antiga.
+let passwordJustSent = false;
+
+function connect() {
+    status('Conectando...');
+    passwordJustSent = false;
+    rfb = new RFB(document.getElementById('screen'), wsUrl, { credentials: {} });
+    applyResizeMode(rfb);
+    // Várias máquinas (kiosk, totem, PC sem mouse físico) rodam com o
+    // cursor do Windows oculto - o servidor VNC manda um cursor
+    // totalmente transparente pra essas máquinas, e o noVNC normalmente
+    // só desenha o cursor de verdade que o servidor mandar. showDotCursor
+    // faz o noVNC substituir por um pontinho visível sempre que o cursor
+    // recebido for invisível/vazio (rfb.js::_shouldShowDotCursor()) - sem
+    // isso não tinha como saber onde o clique ia cair nessas máquinas.
+    rfb.showDotCursor = true;
+
+    rfb.addEventListener('connect', () => {
+        reconnectAttempts = 0;
+        passwordJustSent = false;
+        status('Conectado');
+    });
+
+    rfb.addEventListener('disconnect', (e) => {
+        if (e.detail.clean) {
+            clearInterval(heartbeatTimer);
+            sendStopBeacon(); // libera a sessão de imediato, sem esperar o TTL do sweep
+            status('Desconectado');
+            return;
+        }
+
+        // Senha errada: o servidor derruba a conexão logo depois de
+        // recebermos sendCredentials() - mesmo "clean: false" de uma queda
+        // de rede de verdade, mas aqui reconecta na hora (sem espera) e
+        // sem gastar uma das tentativas do backoff normal, senão 5 senhas
+        // erradas seguidas acabariam o orçamento de reconexão por rede.
+        if (passwordJustSent) {
+            passwordJustSent = false;
+            status('Senha incorreta - tentando de novo...');
+            reconnectTimer = setTimeout(connect, 300);
+            return;
+        }
+
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            clearInterval(heartbeatTimer);
+            sendStopBeacon();
+            status('Conexão perdida - não foi possível reconectar.');
+            return;
+        }
+        const delay = RECONNECT_DELAYS_MS[reconnectAttempts];
+        reconnectAttempts++;
+        status('Conexão perdida - reconectando (tentativa ' + reconnectAttempts + '/' + MAX_RECONNECT_ATTEMPTS + ')...');
+        reconnectTimer = setTimeout(connect, delay);
+    });
+
+    rfb.addEventListener('credentialsrequired', () => {
+        // Pré-preenchido com a senha padrão do UltraVNC Server nas
+        // máquinas do domínio (mesmo valor de PLUGIN_CHATGLPI_VNC_
+        // DEFAULT_PASSWORD em setup.php do plugin GLPI - duplicado aqui
+        // porque esta página é estática, servida direto pelo nginx, sem
+        // acesso às constantes PHP do plugin). Cobre a maioria das
+        // máquinas sem digitar nada; o técnico só troca manualmente nas
+        // exceções que tiverem senha diferente.
+        const password = window.prompt('Senha do VNC:', 'CHANGE_ME_vnc_password');
+        if (password === null) {
+            status('Cancelado');
+            reconnectAttempts = MAX_RECONNECT_ATTEMPTS; // cancelamento explícito não deve tentar de novo sozinho
+            rfb.disconnect();
+            return;
+        }
+        passwordJustSent = true;
+        rfb.sendCredentials({ password });
+    });
+
+    // Clipboard automático, sem caixa/botão dedicado - igual ao
+    // comportamento de um cliente VNC nativo. Duas direções, cada uma via
+    // API oficial do noVNC: remoto -> local (evento "clipboard" grava
+    // direto na área de transferência do navegador via Clipboard API) e
+    // local -> remoto (ao focar a tela remota, lê a área de transferência
+    // local e manda com clipboardPasteFrom()). Falhas de permissão são
+    // silenciosas de propósito, sem popup de erro pra cada tentativa.
+    rfb.addEventListener('clipboard', (e) => {
+        navigator.clipboard.writeText(e.detail.text).catch(() => {});
+    });
+}
+
+function syncClipboardToRemote() {
+    navigator.clipboard.readText().then(text => {
+        if (text && rfb) rfb.clipboardPasteFrom(text);
+    }).catch(() => {});
+}
+document.getElementById('screen').addEventListener('mousedown', syncClipboardToRemote);
+window.addEventListener('focus', syncClipboardToRemote);
+
+document.getElementById('ctrlAltDelButton').addEventListener('click', () => rfb && rfb.sendCtrlAltDel());
+
+connect();
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+[Unit]
+Description=websockify - proxy WebSocket->TCP para acesso remoto VNC via noVNC (aba "Acesso remoto" do chamado)
+After=network.target
+
+[Service]
+Type=simple
+User=glpi-chat
+# --token-plugin=TokenFile re-le o arquivo de tokens a CADA conexao nova (ver
+# TokenFile.lookup() em token_plugins.py, que sempre chama _load_targets() -
+# diferente de ReadOnlyTokenFile, que cacheia so na primeira leitura). Isso e
+# o que permite o backend Node (glpi-backend/src/remote.js) criar/expirar
+# sessoes em tempo real so reescrevendo esse arquivo, sem precisar reiniciar
+# o websockify.
+#
+# So escuta em loopback (127.0.0.1) - quem expoe pra fora e o nginx via
+# location /remote-ws/ (upgrade de WebSocket), nunca direto.
+ExecStart=/usr/bin/websockify --token-plugin=TokenFile --token-source=/opt/glpi-chat/glpi-backend/websockify-tokens.txt 127.0.0.1:6080
+Restart=on-failure
+RestartSec=3
+Environment=NODE_ENV=production
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

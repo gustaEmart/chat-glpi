@@ -1,0 +1,311 @@
+/* Chat-GLPI - só estrutura/tamanho aqui; cor vem das classes do Bootstrap
+   usadas em js/chat.js (bg-primary, bg-light, list-group...) pra herdar
+   automaticamente o tema escolhido no GLPI em vez de brigar com ele.
+
+   Regras redundantes de propósito (display:flex/flex-shrink explícitos além
+   das classes utilitárias já usadas no HTML) - página do GLPI encaixa esta
+   div dentro do próprio layout dela, e sem essas regras o container
+   encolhia pra largura mínima do conteúdo, quebrando o texto palavra por
+   palavra. */
+
+.chatglpi-hidden { display: none !important; }
+
+.chatglpi-layout {
+   display: flex !important;
+   width: 100%;
+   height: calc(100vh - 220px);
+   min-height: 480px;
+}
+
+.chatglpi-rail {
+   flex: 0 0 260px !important;
+   width: 260px;
+   min-width: 260px;
+   max-width: 260px;
+   background: rgba(0, 0, 0, .035);
+   overflow-x: hidden;
+}
+
+.chatglpi-panel {
+   flex: 1 1 auto !important;
+   min-width: 0;
+   width: auto;
+}
+
+.chatglpi-messages {
+   min-height: 0;
+}
+
+#chatglpi-channel-list, #chatglpi-search-results {
+   width: 100%;
+}
+
+.chatglpi-dot {
+   width: 8px;
+   height: 8px;
+   border-radius: 50%;
+   background: rgba(127, 127, 127, .35);
+   flex: none;
+   display: inline-block;
+}
+.chatglpi-dot-online {
+   background: #3ecf8e;
+}
+
+.chatglpi-msg {
+   max-width: 70%;
+   display: flex;
+   flex-direction: column;
+}
+
+.chatglpi-msg-bubble {
+   border-radius: 12px;
+   font-size: 13px;
+   line-height: 1.45;
+   white-space: pre-wrap;
+   word-break: break-word;
+}
+
+/* min-height dá espaço pra DUAS linhas (não uma) - o placeholder tem
+   instrução longa ("Enter envia, Shift+Enter quebra linha") que quebra
+   linha sozinho num campo estreito (painel flutuante não expandido); com
+   38px (só uma linha) a segunda linha ficava cortada na metade em vez de
+   simplesmente quebrar visível. */
+#chatglpi-input {
+   min-height: 56px;
+   max-height: 140px;
+   resize: vertical;
+}
+
+/* Prévia da imagem colada, ainda não enviada - fica esperando o Enter/
+   Enviar (junto com uma legenda opcional), igual o fluxo de imagem do
+   WhatsApp. Botão "x" (.btn-close nativo do Bootstrap) sobrepõe o canto
+   da miniatura pra descartar sem enviar. */
+.chatglpi-pending-thumb {
+   display: block;
+   max-height: 90px;
+   max-width: 180px;
+   border-radius: 8px;
+   border: 1px solid rgba(0, 0, 0, .15);
+}
+.chatglpi-pending-remove {
+   position: absolute;
+   top: -6px;
+   right: -6px;
+   width: 20px;
+   height: 20px;
+   padding: 4px;
+   background-color: #fff;
+   border-radius: 50%;
+   opacity: 1;
+   box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+}
+
+/* Print colado (Ctrl+V) - miniatura na bolha, clique abre em tela cheia
+   (ver js/chat.js::chatglpiOpenLightbox()). */
+.chatglpi-msg-image {
+   display: block;
+   max-width: 100%;
+   max-height: 260px;
+   border-radius: 10px;
+   cursor: zoom-in;
+}
+
+#chatglpi-lightbox {
+   position: fixed;
+   inset: 0;
+   background: rgba(0, 0, 0, .85);
+   z-index: 999999;
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   overflow: auto;
+   cursor: zoom-out;
+}
+#chatglpi-lightbox img {
+   max-width: 90vw;
+   max-height: 90vh;
+   margin: auto;
+   cursor: zoom-in;
+   box-shadow: 0 4px 40px rgba(0, 0, 0, .6);
+}
+/* Zoom = tamanho nativo, com rolagem (a própria imagem cresce além do
+   viewport - o overlay já tem overflow:auto pra permitir passear nela). */
+#chatglpi-lightbox img.chatglpi-lightbox-zoomed {
+   max-width: none;
+   max-height: none;
+   cursor: zoom-out;
+}
+
+/* Resposta a mensagem (estilo WhatsApp) - .chatglpi-reply-box é a prévia
+   acima do composer (some ao enviar/cancelar); .chatglpi-msg-quote é a
+   citação reduzida já dentro da bolha enviada (clique rola/realça a
+   mensagem original, ver js/chat.js). Cor por rgba sobre o texto/fundo já
+   herdado da bolha (branco na azul "mine", escuro nas outras) em vez de
+   fixa, pra não destoar em nenhuma das duas. */
+.chatglpi-reply-box {
+   border-left: 3px solid rgba(0, 0, 0, .3);
+   background: rgba(0, 0, 0, .05);
+   border-radius: 4px;
+   padding: 4px 28px 4px 8px;
+}
+.chatglpi-reply-cancel {
+   position: absolute;
+   top: 6px;
+   right: 6px;
+}
+.chatglpi-msg-quote {
+   border-left: 3px solid rgba(127, 127, 127, .6);
+   background: rgba(127, 127, 127, .18);
+   border-radius: 4px;
+   padding: 2px 6px;
+   margin-bottom: 4px;
+   font-size: 12px;
+   line-height: 1.3;
+   cursor: pointer;
+   max-width: 100%;
+}
+.chatglpi-msg-quote > div:last-child {
+   white-space: nowrap;
+   overflow: hidden;
+   text-overflow: ellipsis;
+}
+.chatglpi-msg-reply-btn {
+   border: none;
+   background: none;
+   padding: 0 2px;
+   line-height: 1;
+   font-size: 12px;
+   opacity: .5;
+   cursor: pointer;
+   color: inherit;
+}
+.chatglpi-msg-reply-btn:hover {
+   opacity: 1;
+}
+.chatglpi-msg-highlight {
+   outline: 2px solid #f5a623;
+   outline-offset: 2px;
+   border-radius: 12px;
+}
+
+/* Desvincular chamado da conversa - "×" pequeno junto do badge "#123" no
+   cabeçalho do painel (renderPanelHeader() em js/chat.js). */
+.chatglpi-ticket-unlink {
+   border: none;
+   background: none;
+   padding: 0 2px;
+   margin-left: 2px;
+   font-size: 13px;
+   line-height: 1;
+   opacity: .5;
+   cursor: pointer;
+   color: inherit;
+}
+.chatglpi-ticket-unlink:hover {
+   opacity: 1;
+   color: #dc3545;
+}
+
+/* Widget flutuante (presente em qualquer página do GLPI) - ver
+   js/chat.js::initFloatingChatWidget(). O painel reaproveita o mesmo
+   initChat() da página dedicada, só precisa forçar a altura porque
+   .chatglpi-layout normalmente assume uma página inteira (calc(100vh-220px)),
+   não uma caixa pequena flutuante.
+
+   Cor NÃO fica fixa aqui de propósito - o botão leva as classes nativas
+   "btn btn-primary" e o painel a classe "card", as mesmas que qualquer
+   caixa/botão do próprio GLPI usa. O GLPI compila uma cor por paleta
+   (Configurar > Preferências > Paleta de cores) direto no CSS - não existem
+   variáveis CSS tipo --bs-body-bg nesse build (confirmado: greparam vazio
+   nos CSS compilados) - então só reaproveitando as MESMAS classes que o
+   resto do GLPI já usa é que a paleta escolhida (inclusive as escuras)
+   se aplica sozinha, sem precisar adivinhar cor nenhuma aqui. */
+#chatglpi-float-button {
+   position: fixed;
+   right: 20px;
+   bottom: 20px;
+   width: 52px;
+   height: 52px;
+   border-radius: 50%;
+   box-shadow: 0 2px 10px rgba(0, 0, 0, .25);
+   font-size: 22px;
+   z-index: 99998;
+   cursor: pointer;
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   padding: 0;
+}
+#chatglpi-float-badge {
+   position: fixed;
+   right: 14px;
+   bottom: 58px;
+   min-width: 18px;
+   height: 18px;
+   padding: 0 4px;
+   border-radius: 9px;
+   background: #e53935;
+   color: #fff;
+   font-size: 11px;
+   font-weight: 600;
+   line-height: 18px;
+   text-align: center;
+   z-index: 99999;
+   pointer-events: none;
+}
+#chatglpi-float-panel {
+   position: fixed;
+   right: 20px;
+   bottom: 84px;
+   width: 640px;
+   max-width: calc(100vw - 40px);
+   height: 560px;
+   max-height: 75vh;
+   /* Rail (.chatglpi-rail) tem 260px FIXOS (flex:0 0 260px, nunca encolhe)
+      - um min-width menor que isso deixaria só uma fresta pro painel de
+      mensagens/composer ao arrastar até o mínimo. 460 garante pelo menos
+      ~200px sobrando pro lado direito. */
+   min-width: 460px;
+   min-height: 320px;
+   box-shadow: 0 4px 24px rgba(0, 0, 0, .3);
+   z-index: 99997;
+   overflow: hidden;
+   padding: 0;
+   /* "both" (não só um botão custom) porque o painel é ancorado por
+      right/bottom (não left/top) - o navegador então cresce a caixa pra
+      CIMA/ESQUERDA ao arrastar o canto (o canto direito/inferior fica
+      fixo), exatamente o efeito esperado de "expandir" sem invadir o
+      botão flutuante nem sair da tela. overflow:hidden acima já habilita
+      o resize (só não funciona com overflow:visible). Tamanho escolhido
+      persiste entre sessões (ver js/chat.js::initFloatingChatWidget()). */
+   resize: both;
+   /* O navegador SEMPRE desenha o "grip" de resize no canto oposto à
+      direção do texto (inferior direito em LTR) - não dá pra escolher o
+      canto direto. direction:rtl aqui move esse grip pro canto inferior
+      ESQUERDO (pedido do usuário, mais fácil de alcançar sem disputar
+      espaço com o botão flutuante/borda da tela); direction:ltr logo
+      abaixo, no .chatglpi-layout, desfaz o espelhamento de texto/layout -
+      só o grip muda de lado, o conteúdo continua normal. */
+   direction: rtl;
+   /* .card do Bootstrap já é display:flex;flex-direction:column - mas
+      redeclarado aqui explicitamente (não só herdado da classe) porque é
+      exatamente essa coluna que separa o cabeçalho (altura própria, ver
+      .chatglpi-panel-title) do resto (flex:1, ver #chatglpi-panel-body). */
+   display: flex;
+   flex-direction: column;
+}
+.chatglpi-panel-title {
+   flex: 0 0 auto;
+   font-size: 14px;
+}
+#chatglpi-panel-body {
+   flex: 1 1 auto;
+   min-height: 0;
+   overflow: hidden;
+}
+#chatglpi-float-panel .chatglpi-layout {
+   height: 100% !important;
+   min-height: 0 !important;
+   direction: ltr;
+}

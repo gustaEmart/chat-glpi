@@ -1,0 +1,21 @@
+# Segredos reais - nunca commitar
+.env
+*.env
+!.env.example
+
+# Dependências instaladas
+node_modules/
+
+# Binários compilados - o README explica como gerar a partir do fonte
+*.exe
+*.exe~
+agent/deploy/agent.exe
+agent/deploy/chatwindow.exe
+
+# Uploads de imagem do chat (dado de runtime, não faz parte do código)
+glpi-backend/uploads/
+
+# Lixo de SO/editor
+.DS_Store
+Thumbs.db
+*.swp

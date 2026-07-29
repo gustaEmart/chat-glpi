@@ -1,0 +1,18 @@
+[Unit]
+Description=Chat-GLPI - backend do plugin GLPI (mensagens/DMs/SSE)
+After=network.target
+
+[Service]
+Type=simple
+User=glpi-chat
+WorkingDirectory=/opt/glpi-chat/glpi-backend
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=3
+Environment=NODE_ENV=production
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
